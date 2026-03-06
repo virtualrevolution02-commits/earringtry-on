@@ -93,12 +93,16 @@ class _ARScreenState extends State<ARScreen> with WidgetsBindingObserver {
 
   /// Web alternate logic: continuously poll the face tracker.
   void _startWebPolling() async {
+    // Wait a bit longer for the camera video element to be injected into the DOM
+    await Future.delayed(const Duration(seconds: 2));
+    debugPrint('Starting web face tracking polling...');
+    
     while (mounted && _faceTracker != null) {
       final result = await _faceTracker!.processFrame(null);
       if (mounted) {
         context.read<ARProvider>().updateFaceTrackResult(result);
       }
-      await Future.delayed(const Duration(milliseconds: 33)); // ~30fps
+      await Future.delayed(const Duration(milliseconds: 40)); // ~25fps
     }
   }
 

@@ -60,38 +60,44 @@ class FaceTrackerWeb implements FaceTrackerService {
   void _handleResults(js.JsObject results) {
     _isProcessingFrame = false;
     final dynamic multiFaceLandmarks = results['multiFaceLandmarks'];
+    
+    // Check if we have results as a jsify-able object
     if (multiFaceLandmarks == null) {
       _latestResult = FaceTrackResult.empty;
       return;
     }
 
-    final length = multiFaceLandmarks['length'] as int? ?? 0;
+    final int length = (multiFaceLandmarks is js.JsObject) 
+        ? (multiFaceLandmarks['length'] as int? ?? 0)
+        : (multiFaceLandmarks as List).length;
+
     if (length == 0) {
       _latestResult = FaceTrackResult.empty;
       return;
     }
 
-    final face = multiFaceLandmarks[0] as js.JsObject;
-    final faceLen = face['length'] as int? ?? 0;
+    final face = (multiFaceLandmarks is js.JsObject)
+        ? multiFaceLandmarks[0] as js.JsObject
+        : (multiFaceLandmarks as List)[0] as js.JsObject;
+    
+    final int faceLen = (face is js.JsObject)
+        ? (face['length'] as int? ?? 0)
+        : (face as List).length;
+
     final List<Map<String, double>> landmarks = [];
 
     for (int i = 0; i < faceLen; i++) {
       final lm = face[i] as js.JsObject;
       landmarks.add({
-        'x': 1.0 - ((lm['x'] as num?)?.toDouble() ?? 0.0), // Mirror X for front camera preview
+        'x': 1.0 - ((lm['x'] as num?)?.toDouble() ?? 0.0), // Mirror X
         'y': (lm['y'] as num?)?.toDouble() ?? 0.0,
         'z': (lm['z'] as num?)?.toDouble() ?? 0.0,
       });
     }
 
-    // MediaPipe Face Mesh detailed ear indices (lobe area)
-    // After mirroring X:
-    // User Right ear (234) -> Results in smaller X -> Screen Left
-    // User Left ear (454) -> Results in larger X -> Screen Right
+    // MediaPipe Face Mesh landmarks for ear lobes
     const int leftLobeIdx = 234; 
     const int rightLobeIdx = 454;
-    
-    // Slight downward offset for hanging effect
     const double verticalLobeOffset = 0.025;
 
     double? leftEarX, leftEarY, rightEarX, rightEarY;
@@ -105,12 +111,23 @@ class FaceTrackerWeb implements FaceTrackerService {
       rightEarY = (landmarks[rightLobeIdx]['y'] ?? 0.0) + verticalLobeOffset;
     }
 
+    // Determine image dimensions from the video element
     final videos = html.document.getElementsByTagName('video');
     double imgW = _latestResult.imageWidth;
     double imgH = _latestResult.imageHeight;
 
     if (videos.isNotEmpty) {
-      final v = videos[0] as html.VideoElement;
+      // Prefer the video element that is actually playing (likely the camera)
+      html.VideoElement? cameraVideo;
+      for (int i = 0; i < videos.length; i++) {
+        final v = videos[i] as html.VideoElement;
+        if (v.readyState >= 2 && v.videoWidth > 0) {
+          cameraVideo = v;
+          break;
+        }
+      }
+      
+      final v = cameraVideo ?? videos[0] as html.VideoElement;
       if (v.videoWidth > 0) {
         imgW = v.videoWidth.toDouble();
         imgH = v.videoHeight.toDouble();
@@ -136,8 +153,17 @@ class FaceTrackerWeb implements FaceTrackerService {
 
     final videos = html.document.getElementsByTagName('video');
     if (videos.isNotEmpty) {
-      final videoElement = videos[0] as html.VideoElement;
-      // readyState 2+ implies HAVE_CURRENT_DATA
+      html.VideoElement? cameraVideo;
+      for (int i = 0; i < videos.length; i++) {
+        final v = videos[i] as html.VideoElement;
+        // Prefer the playing video element
+        if (v.readyState >= 2 && !v.paused) {
+          cameraVideo = v;
+          break;
+        }
+      }
+
+      final videoElement = cameraVideo ?? videos[0] as html.VideoElement;
       if (videoElement.readyState >= 2) {
         _isProcessingFrame = true;
         try {
@@ -145,7 +171,7 @@ class FaceTrackerWeb implements FaceTrackerService {
             js.JsObject.jsify({'image': videoElement})
           ]);
         } catch (e) {
-          _isProcessingFrame = false; // Reset on error
+          _isProcessingFrame = false;
         }
       }
     }
