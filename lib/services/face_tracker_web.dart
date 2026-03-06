@@ -24,33 +24,48 @@ class FaceTrackerWeb implements FaceTrackerService {
 
   @override
   Future<void> initialize() async {
+    html.window.console.log('Initializing FaceTrackerWeb...');
+    
     // MediaPipe is loaded in web/index.html via CDN script tags.
     for (int i = 0; i < 50; i++) {
-      if (js.context.hasProperty('FaceMesh')) break;
+      if (js.context.hasProperty('FaceMesh')) {
+        html.window.console.log('FaceMesh class found in window context');
+        break;
+      }
       await Future.delayed(const Duration(milliseconds: 200));
     }
 
-    _faceMesh = js.JsObject(js.context['FaceMesh'] as js.JsFunction, [
-      js.JsObject.jsify({
-        'locateFile': (String file) {
-          return 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/$file';
+    try {
+      _faceMesh = js.JsObject(js.context['FaceMesh'] as js.JsFunction, [
+        js.JsObject.jsify({
+          'locateFile': (String file) {
+            // Using a specific version to match script tags
+            return 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4/$file';
+          }
+        })
+      ]);
+
+      _faceMesh!.callMethod('setOptions', [
+        js.JsObject.jsify({
+          'maxNumFaces': 1,
+          'refineLandmarks': true,
+          'minDetectionConfidence': 0.5,
+          'minTrackingConfidence': 0.5,
+          'selfieMode': true, // Use selfieMode to let MediaPipe handle mirroring internally if possible
+        })
+      ]);
+
+      final resultsCallback = js.JsFunction.withThis((_, dynamic results) {
+        if (results != null) {
+          _handleResults(js.JsObject.fromBrowserObject(results));
         }
-      })
-    ]);
-
-    _faceMesh!.callMethod('setOptions', [
-      js.JsObject.jsify({
-        'maxNumFaces': 1,
-        'refineLandmarks': true,
-        'minDetectionConfidence': 0.5,
-        'minTrackingConfidence': 0.5,
-      })
-    ]);
-
-    final resultsCallback = js.JsFunction.withThis((_, dynamic results) {
-      if (results is js.JsObject) _handleResults(results);
-    });
-    _faceMesh!.callMethod('onResults', [resultsCallback]);
+      });
+      _faceMesh!.callMethod('onResults', [resultsCallback]);
+      
+      html.window.console.log('FaceMesh initialized successfully');
+    } catch (e) {
+      html.window.console.error('FaceMesh init error: $e');
+    }
 
     if (!_readyCompleter.isCompleted) {
       _readyCompleter.complete();
@@ -61,67 +76,86 @@ class FaceTrackerWeb implements FaceTrackerService {
     _isProcessingFrame = false;
     final dynamic multiFaceLandmarks = results['multiFaceLandmarks'];
     
-    // Check if we have results as a jsify-able object
     if (multiFaceLandmarks == null) {
       _latestResult = FaceTrackResult.empty;
       return;
     }
 
-    final int length = (multiFaceLandmarks is js.JsObject) 
-        ? (multiFaceLandmarks['length'] as int? ?? 0)
-        : (multiFaceLandmarks as List).length;
+    // Safely get length and first face
+    int length = 0;
+    try {
+      length = multiFaceLandmarks['length'] as int? ?? 0;
+    } catch (_) {
+      // Fallback if it's a direct JS array proxy
+      final List l = multiFaceLandmarks as List;
+      length = l.length;
+    }
 
     if (length == 0) {
       _latestResult = FaceTrackResult.empty;
       return;
     }
 
-    final face = (multiFaceLandmarks is js.JsObject)
-        ? multiFaceLandmarks[0] as js.JsObject
-        : (multiFaceLandmarks as List)[0] as js.JsObject;
-    
-    final int faceLen = (face is js.JsObject)
-        ? (face['length'] as int? ?? 0)
-        : (face as List).length;
+    final dynamic faceRaw = multiFaceLandmarks[0];
+    final js.JsObject face = (faceRaw is js.JsObject) 
+        ? faceRaw 
+        : js.JsObject.fromBrowserObject(faceRaw);
+
+    int faceLen = 0;
+    try {
+      faceLen = face['length'] as int? ?? 0;
+    } catch (_) {
+      faceLen = (faceRaw as List).length;
+    }
 
     final List<Map<String, double>> landmarks = [];
-
     for (int i = 0; i < faceLen; i++) {
       final lm = face[i] as js.JsObject;
+      // We rely on 'selfieMode: true' in setOptions for mirroring, 
+      // but if that doesn't work, we'll need to manually check.
+      // For now, let's keep manual mirroring for maximum consistency with the preview.
       landmarks.add({
-        'x': 1.0 - ((lm['x'] as num?)?.toDouble() ?? 0.0), // Mirror X
+        'x': 1.0 - ((lm['x'] as num?)?.toDouble() ?? 0.0),
         'y': (lm['y'] as num?)?.toDouble() ?? 0.0,
         'z': (lm['z'] as num?)?.toDouble() ?? 0.0,
       });
     }
 
-    // MediaPipe Face Mesh landmarks for ear lobes
-    const int leftLobeIdx = 234; 
-    const int rightLobeIdx = 454;
-    const double verticalLobeOffset = 0.025;
+    // Better Ear Positions:
+    // User RIGHT (Viewer LEFT in mirrored view): index 234 (tragus), 132 (lower ear boundary)
+    // User LEFT (Viewer RIGHT in mirrored view): index 454 (tragus), 361 (lower ear boundary)
+    const int leftTragusIdx = 234; 
+    const int rightTragusIdx = 454;
+    const int leftLobeLowerIdx = 132;
+    const int rightLobeLowerIdx = 361;
 
     double? leftEarX, leftEarY, rightEarX, rightEarY;
 
-    if (landmarks.length > leftLobeIdx) {
-      leftEarX = landmarks[leftLobeIdx]['x'];
-      leftEarY = (landmarks[leftLobeIdx]['y'] ?? 0.0) + verticalLobeOffset;
+    if (landmarks.length > leftTragusIdx && landmarks.length > leftLobeLowerIdx) {
+      final t = landmarks[leftTragusIdx];
+      final l = landmarks[leftLobeLowerIdx];
+      // The lobe is usually slightly below the tragus and near the lower ear boundary
+      leftEarX = t['x']! * 0.7 + l['x']! * 0.3;
+      leftEarY = t['y']! * 0.5 + l['y']! * 0.5 + 0.01; 
     }
-    if (landmarks.length > rightLobeIdx) {
-      rightEarX = landmarks[rightLobeIdx]['x'];
-      rightEarY = (landmarks[rightLobeIdx]['y'] ?? 0.0) + verticalLobeOffset;
+    
+    if (landmarks.length > rightTragusIdx && landmarks.length > rightLobeLowerIdx) {
+      final t = landmarks[rightTragusIdx];
+      final l = landmarks[rightLobeLowerIdx];
+      rightEarX = t['x']! * 0.7 + l['x']! * 0.3;
+      rightEarY = t['y']! * 0.5 + l['y']! * 0.5 + 0.01;
     }
 
-    // Determine image dimensions from the video element
+    // Image dimensions
     final videos = html.document.getElementsByTagName('video');
     double imgW = _latestResult.imageWidth;
     double imgH = _latestResult.imageHeight;
 
     if (videos.isNotEmpty) {
-      // Prefer the video element that is actually playing (likely the camera)
       html.VideoElement? cameraVideo;
       for (int i = 0; i < videos.length; i++) {
         final v = videos[i] as html.VideoElement;
-        if (v.readyState >= 2 && v.videoWidth > 0) {
+        if (v.readyState >= 2 && v.videoWidth > 0 && !v.paused) {
           cameraVideo = v;
           break;
         }
