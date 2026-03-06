@@ -127,16 +127,30 @@ class FaceTrackerWeb implements FaceTrackerService {
       rightEarY = jy + 0.01;   // slightly below jaw
     }
 
-    final videos = html.document.getElementsByTagName('video');
+    // ── Find the video element across shadow roots (CanvasKit support) ──
+    html.VideoElement? _findVideoElement(html.Node root) {
+      if (root is html.Element && root.tagName.toLowerCase() == 'video') {
+        return root as html.VideoElement;
+      }
+      if (root is html.Element && root.shadowRoot != null) {
+        final found = _findVideoElement(root.shadowRoot as html.Node);
+        if (found != null) return found;
+      }
+      for (final child in root.childNodes) {
+        final found = _findVideoElement(child);
+        if (found != null) return found;
+      }
+      return null;
+    }
+
+    final videoElement = _findVideoElement(html.document.body as html.Node);
+
     double imgW = _latestResult.imageWidth;
     double imgH = _latestResult.imageHeight;
 
-    if (videos.isNotEmpty) {
-      final v = videos[0] as html.VideoElement;
-      if (v.videoWidth > 0) {
-        imgW = v.videoWidth.toDouble();
-        imgH = v.videoHeight.toDouble();
-      }
+    if (videoElement != null && videoElement.videoWidth > 0) {
+      imgW = videoElement.videoWidth.toDouble();
+      imgH = videoElement.videoHeight.toDouble();
     }
 
     _latestResult = FaceTrackResult(
@@ -156,9 +170,25 @@ class FaceTrackerWeb implements FaceTrackerService {
     // On web, we pull the HTML video element created by the camera plugin.
     if (_isProcessingFrame) return _latestResult;
 
-    final videos = html.document.getElementsByTagName('video');
-    if (videos.isNotEmpty) {
-      final videoElement = videos[0] as html.VideoElement;
+    // ── Find the video element across shadow roots (CanvasKit support) ──
+    html.VideoElement? _findVideoElement(html.Node root) {
+      if (root is html.Element && root.tagName.toLowerCase() == 'video') {
+        return root as html.VideoElement;
+      }
+      if (root is html.Element && root.shadowRoot != null) {
+        final found = _findVideoElement(root.shadowRoot as html.Node);
+        if (found != null) return found;
+      }
+      for (final child in root.childNodes) {
+        final found = _findVideoElement(child);
+        if (found != null) return found;
+      }
+      return null;
+    }
+
+    final videoElement = _findVideoElement(html.document.body as html.Node);
+
+    if (videoElement != null) {
       // readyState 2+ implies HAVE_CURRENT_DATA
       if (videoElement.readyState >= 2) {
         _isProcessingFrame = true;
