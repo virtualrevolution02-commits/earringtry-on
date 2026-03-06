@@ -3,11 +3,18 @@
 # Exit immediately if a command exits with a non-zero status.
 set -e
 
-echo "Cloning Flutter repository..."
-git clone https://github.com/flutter/flutter.git -b stable
+echo "Setting up Flutter..."
 
-echo "Adding Flutter to PATH..."
+# Clone flutter if it doesn't exist
+if [ ! -d "flutter" ]; then
+  echo "Cloning Flutter repository..."
+  git clone https://github.com/flutter/flutter.git -b stable
+fi
+
 export PATH="$PATH:`pwd`/flutter/bin"
+
+echo "Running Flutter Config..."
+flutter config --enable-web
 
 echo "Running Flutter doctor..."
 flutter doctor
