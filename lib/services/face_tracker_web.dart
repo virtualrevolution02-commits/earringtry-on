@@ -84,39 +84,25 @@ class FaceTrackerWeb implements FaceTrackerService {
       });
     }
 
-    // ── Compute earlobe anchor from tragus + jaw landmarks ──
     // MediaPipe Face Mesh detailed ear indices (lobe area)
-    // After mirroring X (1.0 - x):
-    // Sensor-Right (User Left ear): tragus=454, jaw=361
-    // Sensor-Left (User Right ear): tragus=234, jaw=132
+    // After mirroring X:
+    // User Right ear (234) -> Results in smaller X -> Screen Left
+    // User Left ear (454) -> Results in larger X -> Screen Right
+    const int leftLobeIdx = 234; 
+    const int rightLobeIdx = 454;
     
-    const int leftTragusIdx = 454;
-    const int leftJawIdx = 361;
-    const int rightTragusIdx = 234;
-    const int rightJawIdx = 132;
+    // Slight downward offset for hanging effect
+    const double verticalLobeOffset = 0.025;
 
     double? leftEarX, leftEarY, rightEarX, rightEarY;
 
-    if (landmarks.length > leftTragusIdx && landmarks.length > leftJawIdx) {
-      final tx = landmarks[leftTragusIdx]['x'] ?? 0.0;
-      final ty = landmarks[leftTragusIdx]['y'] ?? 0.0;
-      final jx = landmarks[leftJawIdx]['x'] ?? 0.0;
-      final jy = landmarks[leftJawIdx]['y'] ?? 0.0;
-      
-      final midX = (tx + jx) / 2;
-      leftEarX = midX + 0.015; // Shift outward
-      leftEarY = jy + 0.01;   // Shift below jaw
+    if (landmarks.length > leftLobeIdx) {
+      leftEarX = landmarks[leftLobeIdx]['x'];
+      leftEarY = (landmarks[leftLobeIdx]['y'] ?? 0.0) + verticalLobeOffset;
     }
-
-    if (landmarks.length > rightTragusIdx && landmarks.length > rightJawIdx) {
-      final tx = landmarks[rightTragusIdx]['x'] ?? 0.0;
-      final ty = landmarks[rightTragusIdx]['y'] ?? 0.0;
-      final jx = landmarks[rightJawIdx]['x'] ?? 0.0;
-      final jy = landmarks[rightJawIdx]['y'] ?? 0.0;
-      
-      final midX = (tx + jx) / 2;
-      rightEarX = midX - 0.015; // Shift outward
-      rightEarY = jy + 0.01;   // Shift below jaw
+    if (landmarks.length > rightLobeIdx) {
+      rightEarX = landmarks[rightLobeIdx]['x'];
+      rightEarY = (landmarks[rightLobeIdx]['y'] ?? 0.0) + verticalLobeOffset;
     }
 
     final videos = html.document.getElementsByTagName('video');

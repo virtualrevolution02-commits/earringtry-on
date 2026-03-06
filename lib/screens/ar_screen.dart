@@ -135,8 +135,32 @@ class _ARScreenState extends State<ARScreen> with WidgetsBindingObserver {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            // ── Layer 1: Unified AR Visuals (Mapped accurately) ──
-            _buildUnifiedARStack(),
+            // ── Layer 1: Camera feed ──────────────────────────────
+            _buildCameraPreview(),
+
+            // ── Layer 2: Face mesh wireframe ──────────────────────
+            Consumer<ARProvider>(
+              builder: (_, provider, __) {
+                if (!provider.showMesh || provider.landmarks.isEmpty) {
+                  return const SizedBox.shrink();
+                }
+                return CustomPaint(
+                  painter: FaceMeshPainter(
+                    landmarks: provider.landmarks,
+                    previewSize: size,
+                    imgW: provider.imageWidth,
+                    imgH: provider.imageHeight,
+                  ),
+                  size: size,
+                );
+              },
+            ),
+
+            // ── Layer 3: 3D Earring overlay ───────────────────────
+            EarringOverlay(
+              screenWidth: size.width,
+              screenHeight: size.height,
+            ),
 
             // ── Layer 4: UI overlay ───────────────────────────────
             Column(
@@ -247,54 +271,47 @@ class _ARScreenState extends State<ARScreen> with WidgetsBindingObserver {
 
 
 
-  Widget _buildUnifiedARStack() {
+  Widget _buildCameraPreview() {
     final controller = _cameraController;
+
     if (controller == null || !controller.value.isInitialized) {
       return Container(
         color: Colors.black,
         child: const Center(
-          child: CircularProgressIndicator(color: Color(0xFFC9A84C)),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(
+                color: Color(0xFFC9A84C),
+                strokeWidth: 2,
+              ),
+              SizedBox(height: 16),
+              Text(
+                'Initializing Camera...',
+                style: TextStyle(color: Colors.white54, fontSize: 14),
+              ),
+            ],
+          ),
         ),
       );
     }
 
-    final previewSize = controller.value.previewSize!;
-    
-    // On mobile, the preview is usually landscape (e.g., 1280x720) but displayed vertically.
-    // On web, it's often already correct or needs different handling.
-    // For portrait cover, we need to define the 'SizedBox' that the FittedBox will scale.
-    final double rawW = kIsWeb ? previewSize.width : previewSize.height;
-    final double rawH = kIsWeb ? previewSize.height : previewSize.width;
+    // On web, the CameraPreview is an HTML <video> element.
+    // We just let it fill the container; the browser handles aspect ratio.
+    // On mobile, we use FittedBox to handle the aspect ratio correctly.
+    if (kIsWeb) {
+      return SizedBox.expand(
+        child: CameraPreview(controller),
+      );
+    }
 
     return SizedBox.expand(
       child: FittedBox(
         fit: BoxFit.cover,
-        clipBehavior: Clip.hardEdge,
         child: SizedBox(
-          width: rawW,
-          height: rawH,
-          child: Stack(
-            children: [
-              // 1. Live Camera Feed
-              CameraPreview(controller),
-
-              // 2. Face Mesh (Debugging gold dots)
-              Consumer<ARProvider>(
-                builder: (_, provider, __) {
-                  if (!provider.showMesh || provider.landmarks.isEmpty) {
-                    return const SizedBox.shrink();
-                  }
-                  return CustomPaint(
-                    painter: FaceMeshPainter(landmarks: provider.landmarks),
-                    size: Size(rawW, rawH),
-                  );
-                },
-              ),
-
-              // 3. Earring AR Overlays
-              const EarringOverlay(),
-            ],
-          ),
+          width: controller.value.previewSize!.height,
+          height: controller.value.previewSize!.width,
+          child: CameraPreview(controller),
         ),
       ),
     );

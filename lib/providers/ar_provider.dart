@@ -31,7 +31,7 @@ class ARProvider extends ChangeNotifier {
   double? _rightEarY;
 
   // UI toggles
-  bool _showMesh = false; 
+  bool _showMesh = true; // Enable for debugging
   bool _isCapturing = false;
 
   // Getters

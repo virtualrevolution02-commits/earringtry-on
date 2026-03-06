@@ -6,8 +6,13 @@ import '../services/animation_engine.dart';
 
 /// Positions 3D (GLB) or 2D (PNG/GIF) earring at the detected ear anchor points.
 class EarringOverlay extends StatefulWidget {
+  final double screenWidth;
+  final double screenHeight;
+
   const EarringOverlay({
     super.key,
+    required this.screenWidth,
+    required this.screenHeight,
   });
 
   @override
@@ -19,8 +24,6 @@ class _EarringOverlayState extends State<EarringOverlay>
   late AnimationEngine _animationEngine;
   double _swingAngle = 0.0;
   double _scaleFactor = 1.0;
-  double? _lastLeftX;
-  double? _lastRightX;
 
   @override
   void initState() {
@@ -44,80 +47,77 @@ class _EarringOverlayState extends State<EarringOverlay>
     super.dispose();
   }
 
-  void _processMovement(double? currentLeftX, double? currentRightX) {
-    if (currentLeftX != null && _lastLeftX != null) {
-      final delta = currentLeftX - _lastLeftX!;
-      if (delta.abs() > 0.001) {
-        _animationEngine.nudge(delta);
-      }
-    } else if (currentRightX != null && _lastRightX != null) {
-      final delta = currentRightX - _lastRightX!;
-      if (delta.abs() > 0.001) {
-        _animationEngine.nudge(delta);
-      }
-    }
-    _lastLeftX = currentLeftX;
-    _lastRightX = currentRightX;
+  Offset _mapToScreen(double? nX, double? nY, double imgW, double imgH) {
+    if (nX == null || nY == null || imgW == 0 || imgH == 0) return Offset.zero;
+
+    final screenW = widget.screenWidth;
+    final screenH = widget.screenHeight;
+
+    // Correct for aspect ratio mismatch (BoxFit.cover logic)
+    final double scale = (screenW / imgW > screenH / imgH) 
+        ? screenW / imgW 
+        : screenH / imgH;
+
+    final double offsetX = (screenW - imgW * scale) / 2;
+    final double offsetY = (screenH - imgH * scale) / 2;
+
+    return Offset(
+      (nX * imgW * scale) + offsetX,
+      (nY * imgH * scale) + offsetY,
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final parentW = constraints.maxWidth;
-        final parentH = constraints.maxHeight;
+    return Consumer<ARProvider>(
+      builder: (context, provider, _) {
+        final earring = provider.selectedEarring;
+        if (earring == null) return const SizedBox.shrink();
 
-        return Consumer<ARProvider>(
-          builder: (context, provider, _) {
-            final earring = provider.selectedEarring;
-            if (earring == null) return const SizedBox.shrink();
+        final imgW = provider.imageWidth;
+        final imgH = provider.imageHeight;
 
-            final showLeft = provider.leftEarX != null;
-            final showRight = provider.rightEarX != null;
+        final leftPos = _mapToScreen(provider.leftEarX, provider.leftEarY, imgW, imgH);
+        final rightPos = _mapToScreen(provider.rightEarX, provider.rightEarY, imgW, imgH);
 
-            if (!showLeft && !showRight) return const SizedBox.shrink();
+        final showLeft = provider.leftEarX != null;
+        final showRight = provider.rightEarX != null;
 
-            // React to movement
-            _processMovement(provider.leftEarX, provider.rightEarX);
+        if (!showLeft && !showRight) return const SizedBox.shrink();
 
-            // Earring visual size (relative to a 720p baseline, scaled by parent)
-            // We scale the base size by parentH / 720 or similar if needed, 
-            // but since it's already in the FittedBox, we can use absolute-looking pixels 
-            // that are relative to the camera resolution.
-            const double baseW = 75.0;
-            const double baseH = 115.0;
+        // Earring visual size
+        const double earringW = 75.0;
+        const double earringH = 115.0;
 
-            final is3D = earring.modelUrl.toLowerCase().endsWith('.glb') || 
-                         earring.imageUrl.toLowerCase().endsWith('.glb');
+        final is3D = earring.modelUrl.toLowerCase().endsWith('.glb') || 
+                     earring.imageUrl.toLowerCase().endsWith('.glb');
 
-            return Stack(
-              children: [
-                if (showLeft)
-                  _buildEarringAt(
-                    earring: earring,
-                    is3D: is3D,
-                    left: (provider.leftEarX! * parentW) - (baseW * _scaleFactor) / 2,
-                    top: provider.leftEarY! * parentH,
-                    width: baseW * _scaleFactor,
-                    height: baseH * _scaleFactor,
-                    perspectiveRotation: (provider.leftEarX! - 0.5) * 0.4, 
-                  ),
-                if (showRight)
-                  _buildEarringAt(
-                    earring: earring,
-                    is3D: is3D,
-                    left: (provider.rightEarX! * parentW) - (baseW * _scaleFactor) / 2,
-                    top: provider.rightEarY! * parentH,
-                    width: baseW * _scaleFactor,
-                    height: baseH * _scaleFactor,
-                    mirrorSwing: true,
-                    perspectiveRotation: (provider.rightEarX! - 0.5) * 0.4,
-                  ),
-              ],
-            );
-          },
+        return Stack(
+          children: [
+            if (showLeft)
+              _buildEarringAt(
+                earring: earring,
+                is3D: is3D,
+                left: leftPos.dx - (earringW * _scaleFactor) / 2,
+                top: leftPos.dy,
+                width: earringW * _scaleFactor,
+                height: earringH * _scaleFactor,
+                perspectiveRotation: (provider.leftEarX! - 0.5) * 0.4, 
+              ),
+            if (showRight)
+              _buildEarringAt(
+                earring: earring,
+                is3D: is3D,
+                left: rightPos.dx - (earringW * _scaleFactor) / 2,
+                top: rightPos.dy,
+                width: earringW * _scaleFactor,
+                height: earringH * _scaleFactor,
+                mirrorSwing: true,
+                perspectiveRotation: (provider.rightEarX! - 0.5) * 0.4,
+              ),
+          ],
         );
-      }
+      },
     );
   }
 
