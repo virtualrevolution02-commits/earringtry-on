@@ -22,7 +22,7 @@ flutter doctor
 echo "Getting dependencies..."
 flutter pub get
 
-echo "Building Flutter Web application..."
-flutter build web --release
+echo "Building Flutter Web application (Forcing HTML Renderer)..."
+flutter build web --web-renderer html --release
 
 echo "Build complete!"

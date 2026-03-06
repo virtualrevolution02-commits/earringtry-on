@@ -103,9 +103,26 @@
         setTimeout(() => splash.remove(), 500);
       }
     });
+
+    // explicitly tell the Flutter engine to use the html renderer
+    window.addEventListener('load', function(ev) {
+      _flutter.loader.loadEntrypoint({
+        serviceWorker: {
+          serviceWorkerVersion: null,
+        },
+        onEntrypointLoaded: function(engineInitializer) {
+          engineInitializer.initializeEngine({
+            renderer: 'html', // FORCE HTML RENDERER
+            useColorEmoji: true,
+          }).then(function(appRunner) {
+            appRunner.runApp();
+          });
+        }
+      });
+    });
   </script>
 
-  <script src="flutter_bootstrap.js" async></script>
+  <!-- We load the flutter.js explicitly instead of letting the default flutter_bootstrap handle it -->
+  <script src="flutter.js" defer></script>
 </body>
-
 </html>
