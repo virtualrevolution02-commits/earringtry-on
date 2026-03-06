@@ -85,46 +85,38 @@ class FaceTrackerWeb implements FaceTrackerService {
     }
 
     // ── Compute earlobe anchor from tragus + jaw landmarks ──
-    // MediaPipe Face Mesh indices (BEFORE mirroring):
-    //   Sensor-Right tragus: 234, jaw: 132  (User's Right ear)
-    //   Sensor-Left  tragus: 454, jaw: 361  (User's Left ear)
+    // MediaPipe Face Mesh detailed ear indices (lobe area)
     // After mirroring X (1.0 - x):
-    //   Screen-Left  = User's Left ear  (indices 454, 361)
-    //   Screen-Right = User's Right ear (indices 234, 132)
-
-    // Screen-Left ear (User's Left): tragus=454, jaw=361
+    // Sensor-Right (User Left ear): tragus=454, jaw=361
+    // Sensor-Left (User Right ear): tragus=234, jaw=132
+    
     const int leftTragusIdx = 454;
     const int leftJawIdx = 361;
-    // Screen-Right ear (User's Right): tragus=234, jaw=132
     const int rightTragusIdx = 234;
     const int rightJawIdx = 132;
 
     double? leftEarX, leftEarY, rightEarX, rightEarY;
 
-    // Compute left earlobe anchor
-    if (landmarks.length > leftTragusIdx) {
+    if (landmarks.length > leftTragusIdx && landmarks.length > leftJawIdx) {
       final tx = landmarks[leftTragusIdx]['x'] ?? 0.0;
       final ty = landmarks[leftTragusIdx]['y'] ?? 0.0;
       final jx = landmarks[leftJawIdx]['x'] ?? 0.0;
       final jy = landmarks[leftJawIdx]['y'] ?? 0.0;
-
-      // Earlobe = midpoint shifted outward (away from face) + slightly below jaw
+      
       final midX = (tx + jx) / 2;
-      leftEarX = midX + 0.015; // shift right on screen (outward for left ear)
-      leftEarY = jy + 0.01;   // slightly below jaw
+      leftEarX = midX + 0.015; // Shift outward
+      leftEarY = jy + 0.01;   // Shift below jaw
     }
 
-    // Compute right earlobe anchor
-    if (landmarks.length > rightTragusIdx) {
+    if (landmarks.length > rightTragusIdx && landmarks.length > rightJawIdx) {
       final tx = landmarks[rightTragusIdx]['x'] ?? 0.0;
       final ty = landmarks[rightTragusIdx]['y'] ?? 0.0;
       final jx = landmarks[rightJawIdx]['x'] ?? 0.0;
       final jy = landmarks[rightJawIdx]['y'] ?? 0.0;
-
-      // Earlobe = midpoint shifted outward (away from face) + slightly below jaw
+      
       final midX = (tx + jx) / 2;
-      rightEarX = midX - 0.015; // shift left on screen (outward for right ear)
-      rightEarY = jy + 0.01;   // slightly below jaw
+      rightEarX = midX - 0.015; // Shift outward
+      rightEarY = jy + 0.01;   // Shift below jaw
     }
 
     final videos = html.document.getElementsByTagName('video');
