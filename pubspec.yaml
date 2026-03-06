@@ -1,0 +1,43 @@
+name: ar_earring_flutter
+description: AR Earring Virtual Try-On — cross-platform Flutter app
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # Camera
+  camera: ^0.10.5+9
+  # Face Detection (Android + iOS only; web uses MediaPipe JS)
+  google_mlkit_face_detection: ^0.11.0
+  # 3D GLB model rendering (web + mobile)
+  model_viewer_plus: ^1.7.0
+  # State management
+  provider: ^6.1.1
+  # HTTP for backend API
+  http: ^1.1.0
+  # Screenshot capture
+  screenshot: ^3.0.0
+  # Save to gallery
+  image_gallery_saver_plus: ^3.0.2
+  # Google Fonts
+  google_fonts: ^6.1.0
+  # JS interop for web MediaPipe
+  js: ^0.7.1
+  # Cupertino icons
+  cupertino_icons: ^1.0.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/models/
+    - assets/thumbnails/
+    - assets/earrings/
