@@ -24,47 +24,14 @@ class FaceTrackerWeb implements FaceTrackerService {
 
   @override
   Future<void> initialize() async {
-    html.window.console.log('Initializing FaceTrackerWeb...');
-    
-    // MediaPipe is loaded in web/index.html via CDN script tags.
+    // Wait for the JS helper to be initialized by the window 'load' listener
     for (int i = 0; i < 50; i++) {
-      if (js.context.hasProperty('FaceMesh')) {
-        html.window.console.log('FaceMesh class found in window context');
+      final helper = js.context['FaceMeshHelper'];
+      if (helper != null && helper['isLoaded'] == true) {
+        html.window.console.log('[Dart] FaceMeshHelper found and loaded');
         break;
       }
       await Future.delayed(const Duration(milliseconds: 200));
-    }
-
-    try {
-      _faceMesh = js.JsObject(js.context['FaceMesh'] as js.JsFunction, [
-        js.JsObject.jsify({
-          'locateFile': (String file) {
-            // Using a specific version to match script tags
-            return 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4/$file';
-          }
-        })
-      ]);
-
-      _faceMesh!.callMethod('setOptions', [
-        js.JsObject.jsify({
-          'maxNumFaces': 1,
-          'refineLandmarks': true,
-          'minDetectionConfidence': 0.5,
-          'minTrackingConfidence': 0.5,
-          'selfieMode': true, // Use selfieMode to let MediaPipe handle mirroring internally if possible
-        })
-      ]);
-
-      final resultsCallback = js.JsFunction.withThis((_, dynamic results) {
-        if (results != null) {
-          _handleResults(js.JsObject.fromBrowserObject(results));
-        }
-      });
-      _faceMesh!.callMethod('onResults', [resultsCallback]);
-      
-      html.window.console.log('FaceMesh initialized successfully');
-    } catch (e) {
-      html.window.console.error('FaceMesh init error: $e');
     }
 
     if (!_readyCompleter.isCompleted) {
@@ -72,58 +39,24 @@ class FaceTrackerWeb implements FaceTrackerService {
     }
   }
 
-  void _handleResults(js.JsObject results) {
-    _isProcessingFrame = false;
-    final dynamic multiFaceLandmarks = results['multiFaceLandmarks'];
-    
-    if (multiFaceLandmarks == null) {
+  void _handleRawData(dynamic flatData) {
+    if (flatData == null) {
       _latestResult = FaceTrackResult.empty;
       return;
-    }
-
-    // Safely get length and first face
-    int length = 0;
-    try {
-      length = multiFaceLandmarks['length'] as int? ?? 0;
-    } catch (_) {
-      // Fallback if it's a direct JS array proxy
-      final List l = multiFaceLandmarks as List;
-      length = l.length;
-    }
-
-    if (length == 0) {
-      _latestResult = FaceTrackResult.empty;
-      return;
-    }
-
-    final dynamic faceRaw = multiFaceLandmarks[0];
-    final js.JsObject face = (faceRaw is js.JsObject) 
-        ? faceRaw 
-        : js.JsObject.fromBrowserObject(faceRaw);
-
-    int faceLen = 0;
-    try {
-      faceLen = face['length'] as int? ?? 0;
-    } catch (_) {
-      faceLen = (faceRaw as List).length;
     }
 
     final List<Map<String, double>> landmarks = [];
-    for (int i = 0; i < faceLen; i++) {
-      final lm = face[i] as js.JsObject;
-      // We rely on 'selfieMode: true' in setOptions for mirroring, 
-      // but if that doesn't work, we'll need to manually check.
-      // For now, let's keep manual mirroring for maximum consistency with the preview.
+    // Data is a flat Float32Array: [x,y,z, x,y,z, ...]
+    final int count = (flatData['length'] as int) ~/ 3;
+    
+    for (int i = 0; i < count; i++) {
       landmarks.add({
-        'x': 1.0 - ((lm['x'] as num?)?.toDouble() ?? 0.0),
-        'y': (lm['y'] as num?)?.toDouble() ?? 0.0,
-        'z': (lm['z'] as num?)?.toDouble() ?? 0.0,
+        'x': (flatData[i * 3] as num).toDouble(),
+        'y': (flatData[i * 3 + 1] as num).toDouble(),
+        'z': (flatData[i * 3 + 2] as num).toDouble(),
       });
     }
 
-    // Better Ear Positions:
-    // User RIGHT (Viewer LEFT in mirrored view): index 234 (tragus), 132 (lower ear boundary)
-    // User LEFT (Viewer RIGHT in mirrored view): index 454 (tragus), 361 (lower ear boundary)
     const int leftTragusIdx = 234; 
     const int rightTragusIdx = 454;
     const int leftLobeLowerIdx = 132;
@@ -134,7 +67,6 @@ class FaceTrackerWeb implements FaceTrackerService {
     if (landmarks.length > leftTragusIdx && landmarks.length > leftLobeLowerIdx) {
       final t = landmarks[leftTragusIdx];
       final l = landmarks[leftLobeLowerIdx];
-      // The lobe is usually slightly below the tragus and near the lower ear boundary
       leftEarX = t['x']! * 0.7 + l['x']! * 0.3;
       leftEarY = t['y']! * 0.5 + l['y']! * 0.5 + 0.01; 
     }
@@ -146,7 +78,6 @@ class FaceTrackerWeb implements FaceTrackerService {
       rightEarY = t['y']! * 0.5 + l['y']! * 0.5 + 0.01;
     }
 
-    // Image dimensions
     final videos = html.document.getElementsByTagName('video');
     double imgW = _latestResult.imageWidth;
     double imgH = _latestResult.imageHeight;
@@ -160,7 +91,6 @@ class FaceTrackerWeb implements FaceTrackerService {
           break;
         }
       }
-      
       final v = cameraVideo ?? videos[0] as html.VideoElement;
       if (v.videoWidth > 0) {
         imgW = v.videoWidth.toDouble();
@@ -182,15 +112,16 @@ class FaceTrackerWeb implements FaceTrackerService {
 
   @override
   Future<FaceTrackResult> processFrame(CameraImage? image) async {
-    // On web, we pull the HTML video element created by the camera plugin.
     if (_isProcessingFrame) return _latestResult;
+
+    final helper = js.context['FaceMeshHelper'];
+    if (helper == null || helper['isLoaded'] != true) return _latestResult;
 
     final videos = html.document.getElementsByTagName('video');
     if (videos.isNotEmpty) {
       html.VideoElement? cameraVideo;
       for (int i = 0; i < videos.length; i++) {
         final v = videos[i] as html.VideoElement;
-        // Prefer the playing video element
         if (v.readyState >= 2 && !v.paused) {
           cameraVideo = v;
           break;
@@ -201,10 +132,16 @@ class FaceTrackerWeb implements FaceTrackerService {
       if (videoElement.readyState >= 2) {
         _isProcessingFrame = true;
         try {
-          _faceMesh?.callMethod('send', [
-            js.JsObject.jsify({'image': videoElement})
-          ]);
+          // callMethod 'processImage' returns a Promise
+          final dynamic promise = helper.callMethod('processImage', [videoElement]);
+          if (promise != null) {
+            // Wait for promise resolution
+            final results = await html.window.promiseToFuture(promise);
+            _handleRawData(results);
+          }
         } catch (e) {
+          html.window.console.error('[Dart] Error processing frame: $e');
+        } finally {
           _isProcessingFrame = false;
         }
       }

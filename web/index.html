@@ -22,9 +22,12 @@
   <!-- ============================================================
        MediaPipe FaceMesh — loaded from CDN for Flutter Web interop
        ============================================================ -->
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.4/camera_utils.js" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils@0.6/control_utils.js" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.3/drawing_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.4/camera_utils.js"
+    crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils@0.6/control_utils.js"
+    crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.3/drawing_utils.js"
+    crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4/face_mesh.js" crossorigin="anonymous"></script>
 
   <style>
@@ -96,14 +99,68 @@
   </div>
 
   <script>
+    // Robust FaceMesh Helper to bridge MediaPipe to Flutter
+    window.FaceMeshHelper = {
+      faceMesh: null,
+      latestResults: null,
+      isLoaded: false,
+
+      init: function () {
+        console.log('[FaceMeshHelper] Initializing...');
+        if (typeof FaceMesh === 'undefined') {
+          console.error('[FaceMeshHelper] FaceMesh not found. Scripts failed?');
+          return;
+        }
+
+        this.faceMesh = new FaceMesh({
+          locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4/${file}`
+        });
+
+        this.faceMesh.setOptions({
+          maxNumFaces: 1,
+          refineLandmarks: true,
+          minDetectionConfidence: 0.5,
+          minTrackingConfidence: 0.5,
+          selfieMode: true
+        });
+
+        this.faceMesh.onResults((results) => {
+          this.latestResults = results;
+        });
+
+        this.isLoaded = true;
+        console.log('[FaceMeshHelper] Ready');
+      },
+
+      processImage: async function (videoElement) {
+        if (!this.isLoaded || !this.faceMesh) return null;
+        if (videoElement.readyState < 2) return null;
+
+        await this.faceMesh.send({ image: videoElement });
+
+        if (!this.latestResults || !this.latestResults.multiFaceLandmarks) return null;
+
+        const landmarks = this.latestResults.multiFaceLandmarks[0];
+        if (!landmarks) return null;
+
+        // Return a flattened Float32Array for performance and to avoid Proxy issues
+        const flatData = new Float32Array(landmarks.length * 3);
+        for (let i = 0; i < landmarks.length; i++) {
+          flatData[i * 3] = 1.0 - landmarks[i].x; // Mirror X manually for preview consistency
+          flatData[i * 3 + 1] = landmarks[i].y;
+          flatData[i * 3 + 2] = landmarks[i].z;
+        }
+        return flatData;
+      }
+    };
+
+    // Auto-init helper when scripts are ready
+    window.addEventListener('load', () => {
+      setTimeout(() => window.FaceMeshHelper.init(), 1000);
+    });
+
     window.addEventListener('flutter-first-frame', function () {
       console.log('Flutter first frame rendered');
-      if (typeof FaceMesh !== 'undefined') {
-        console.log('MediaPipe FaceMesh script loaded successfully');
-      } else {
-        console.error('MediaPipe FaceMesh script failed to load');
-      }
-      
       const splash = document.getElementById('splash');
       if (splash) {
         splash.style.opacity = '0';
